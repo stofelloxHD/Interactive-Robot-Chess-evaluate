@@ -22,57 +22,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      # CodeQL initialisieren (build-less, wir liefern compile_commands.json)
-      - name: Initialize CodeQL
+      - name: Initialize CodeQL (build-less)
         uses: github/codeql-action/init@v4
         with:
           languages: cpp
           queries: security-extended
           build-mode: none
 
-      # Beide Workspaces im ROS-Noetic-Container bauen und compdb herauskopieren
-      - name: Build workspaces inside ROS Noetic Docker
+      - name: Build DEV workspace inside ROS Noetic Docker
         run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            ros:noetic-desktop-full \
-            bash -c '
-              set -e
-              source /opt/ros/noetic/setup.bash
+          docker run --rm -v "$PWD:/workspace" -w /workspace ros:noetic-desktop-full bash -lc '
+            set -e
+            source /opt/ros/noetic/setup.bash
+            cd /workspace/DEV/ROS/catkin_ws
+            apt-get update -y >/dev/null 2>&1 || true
+            apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
+            rosdep init 2>/dev/null || true
+            rosdep update || true
+            rosdep install --from-paths src --ignore-src -r -y || true
+            catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            cp build/compile_commands.json /workspace/compile_dev.json
+          '
 
-              echo "=== DEV workspace ==="
-              cd /workspace/DEV/ROS/catkin_ws
-              apt-get update -y >/dev/null 2>&1 || true
-              apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
-              rosdep init 2>/dev/null || true
-              rosdep update || true
-              rosdep install --from-paths src --ignore-src -r -y || true
-              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON || {
-                echo "----- DEV CMakeError.log -----" >&2
-                cat build/CMakeFiles/CMakeError.log 2>/dev/null || true
-                echo "----- DEV CMakeOutput.log ----" >&2
-                cat build/CMakeFiles/CMakeOutput.log 2>/dev/null || true
-                exit 1
-              }
-              cp build/compile_commands.json /workspace/compile_dev.json
+      - name: Build SRC workspace inside ROS Noetic Docker
+        run: |
+          docker run --rm -v "$PWD:/workspace" -w /workspace ros:noetic-desktop-full bash -lc '
+            set -e
+            source /opt/ros/noetic/setup.bash
+            cd /workspace/SRC/ROS/catkin_ws
+            apt-get update -y >/dev/null 2>&1 || true
+            apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
+            rosdep init 2>/dev/null || true
+            rosdep update || true
+            rosdep install --from-paths src --ignore-src -r -y || true
+            catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            cp build/compile_commands.json /workspace/compile_src.json
+          '
 
-              echo "=== SRC workspace ==="
-              cd /workspace/SRC/ROS/catkin_ws
-              rosdep install --from-paths src --ignore-src -r -y || true
-              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON || {
-                echo "----- SRC CMakeError.log -----" >&2
-                cat build/CMakeFiles/CMakeError.log 2>/dev/null || true
-                echo "----- SRC CMakeOutput.log ----" >&2
-                cat build/CMakeFiles/CMakeOutput.log 2>/dev/null || true
-                exit 1
-              }
-              cp build/compile_commands.json /workspace/compile_src.json
-            '
-
-      # Beide compile_commands.json zu einer Liste zusammenführen (hostseitig)
       - name: Merge compile_commands.json files
+        shell: bash
         run: |
           python3 - << 'PY'
-import json, sys, os
+import json
 with open('compile_dev.json') as f: dev = json.load(f)
+with open('compile_src.json') as f: src = json.load(f)
+with open('compile_commands.json','w') as out: json.dump(dev + src, out, indent=2)
+print("Merged entries:", len(dev), "+", len(src), "=", len(dev)+len(src))
+PY
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:cpp"
