@@ -10,7 +10,7 @@ on:
 jobs:
   analyze-cpp:
     name: Analyze C++ with CodeQL
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04   # <-- WICHTIG: ROS Noetic benötigt 20.04
 
     permissions:
       contents: read
@@ -22,15 +22,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Show repository structure
+      - name: Setup ROS Noetic
         run: |
-          echo "=== PROJECT STRUCTURE ==="
-          ls -R .
-
-      - name: Install build tools
-        run: |
+          sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu focal main" > /etc/apt/sources.list.d/ros1.list'
+          sudo apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key 421C365BD9FF1F717815A3895523BAEEB01FA116
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential
+          sudo apt-get install -y ros-noetic-desktop-full python3-catkin-tools
+          echo "source /opt/ros/noetic/setup.bash" >> $GITHUB_ENV
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -38,10 +36,11 @@ jobs:
           languages: cpp
           queries: security-extended
 
-      - name: Build C++ project
+      - name: Build Catkin Workspace
         run: |
-          cmake -S DEV/ROS/catkin_ws/src/ibo1_irc_api -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cmake --build build --config Release -j$(nproc)
+          source /opt/ros/noetic/setup.bash
+          cd DEV/ROS/catkin_ws
+          catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
