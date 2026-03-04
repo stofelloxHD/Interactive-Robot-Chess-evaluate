@@ -20,8 +20,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Initialize CodeQL (build-less)
         uses: github/codeql-action/init@v4
@@ -68,20 +66,16 @@ jobs:
               cp build/compile_commands.json /workspace/compile_src.json
             "
 
-      - name: Create Python merge script
+      - name: Merge compile_commands.json files
         run: |
-          echo 'import json
-dev = json.load(open("compile_dev.json"))
-src = json.load(open("compile_src.json"))
-with open("compile_commands.json","w") as f:
-    json.dump(dev + src, f, indent=2)
-print("Merged entries:", len(dev), "+", len(src), "=", len(dev)+len(src))' > merge.py
-
-      - name: Merge compile_commands.json
-        run: python3 merge.py
+          printf "%s\n" "import json" \
+                         "dev = json.load(open('compile_dev.json'))" \
+                         "src = json.load(open('compile_src.json'))" \
+                         "with open('compile_commands.json','w') as f:" \
+                         "    json.dump(dev + src, f, indent=2)" \
+                         "print('Merged entries:', len(dev), '+', len(src), '=', len(dev)+len(src))" \
+            > merge.py
+          python3 merge.py
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
-        with:
-          category: "/language:cpp"
-``
