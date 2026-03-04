@@ -1,4 +1,4 @@
-name: "CodeQL Analysis (C++ - Robot Chess)"
+name: "CodeQL Analysis (C++ - Robot Chess via ROS Noetic Docker)"
 
 on:
   push:
@@ -9,8 +9,8 @@ on:
 
 jobs:
   analyze-cpp:
-    name: Analyze C++ with CodeQL (Both Workspaces)
-    runs-on: ubuntu-20.04
+    name: Analyze C++ with CodeQL (Docker ROS Noetic)
+    runs-on: ubuntu-latest
 
     permissions:
       contents: read
@@ -23,35 +23,44 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup ROS Noetic
-        run: |
-          sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu focal main" > /etc/apt/sources.list.d/ros1.list'
-          sudo apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key 421C365BD9FF1F717815A3895523BAEEB01FA116
-          sudo apt-get update
-          sudo apt-get install -y ros-noetic-desktop-full python3-catkin-tools
-          echo "source /opt/ros/noetic/setup.bash" >> $GITHUB_ENV
-
+      #############################################################
+      # 1) CodeQL initialisieren (läuft HOST-SEITIG, nicht Docker)
+      #############################################################
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: cpp
           queries: security-extended
 
-      - name: Build DEV workspace
+      #############################################################
+      # 2) Docker-Container für ROS Noetic starten
+      #############################################################
+      - name: Build workspaces inside ROS Noetic Docker
         run: |
-          source /opt/ros/noetic/setup.bash
-          cd DEV/ROS/catkin_ws
-          catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cp build/compile_commands.json $GITHUB_WORKSPACE/compile_dev.json
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ros:noetic-ros-base \
+            bash -c "
+              set -e
 
-      - name: Build SRC workspace
-        run: |
-          source /opt/ros/noetic/setup.bash
-          cd SRC/ROS/catkin_ws
-          catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cp build/compile_commands.json $GITHUB_WORKSPACE/compile_src.json
+              echo '=== Building DEV Workspace ==='
+              cd DEV/ROS/catkin_ws
+              source /opt/ros/noetic/setup.bash
+              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              cp build/compile_commands.json /workspace/compile_dev.json
 
-      - name: Merge compile_commands.json from both workspaces
+              echo '=== Building SRC Workspace ==='
+              cd /workspace/SRC/ROS/catkin_ws
+              source /opt/ros/noetic/setup.bash
+              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              cp build/compile_commands.json /workspace/compile_src.json
+            "
+
+      #############################################################
+      # 3) compile_commands.json zusammenführen
+      #############################################################
+      - name: Merge compile_commands.json files
         run: |
           echo "[" > compile_commands.json
           sed '1d;$d' compile_dev.json >> compile_commands.json
@@ -59,6 +68,9 @@ jobs:
           sed '1d;$d' compile_src.json >> compile_commands.json
           echo "]" >> compile_commands.json
 
+      #############################################################
+      # 4) CodeQL Analyse
+      #############################################################
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
