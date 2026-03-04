@@ -17,6 +17,7 @@ jobs:
       security-events: write
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -31,46 +32,56 @@ jobs:
 
       - name: Build DEV workspace inside ROS Noetic Docker
         run: |
-          docker run --rm -v "$PWD:/workspace" -w /workspace ros:noetic-desktop-full bash -lc '
-            set -e
-            source /opt/ros/noetic/setup.bash
-            cd /workspace/DEV/ROS/catkin_ws
-            apt-get update -y >/dev/null 2>&1 || true
-            apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
-            rosdep init 2>/dev/null || true
-            rosdep update || true
-            rosdep install --from-paths src --ignore-src -r -y || true
-            catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-            cp build/compile_commands.json /workspace/compile_dev.json
-          '
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ros:noetic-desktop-full \
+            bash -lc "
+              set -e
+              source /opt/ros/noetic/setup.bash
+              cd /workspace/DEV/ROS/catkin_ws
+              apt-get update -y >/dev/null 2>&1 || true
+              apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
+              rosdep init 2>/dev/null || true
+              rosdep update || true
+              rosdep install --from-paths src --ignore-src -r -y || true
+              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              cp build/compile_commands.json /workspace/compile_dev.json
+            "
 
       - name: Build SRC workspace inside ROS Noetic Docker
         run: |
-          docker run --rm -v "$PWD:/workspace" -w /workspace ros:noetic-desktop-full bash -lc '
-            set -e
-            source /opt/ros/noetic/setup.bash
-            cd /workspace/SRC/ROS/catkin_ws
-            apt-get update -y >/dev/null 2>&1 || true
-            apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
-            rosdep init 2>/dev/null || true
-            rosdep update || true
-            rosdep install --from-paths src --ignore-src -r -y || true
-            catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-            cp build/compile_commands.json /workspace/compile_src.json
-          '
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ros:noetic-desktop-full \
+            bash -lc "
+              set -e
+              source /opt/ros/noetic/setup.bash
+              cd /workspace/SRC/ROS/catkin_ws
+              apt-get update -y >/dev/null 2>&1 || true
+              apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
+              rosdep init 2>/dev/null || true
+              rosdep update || true
+              rosdep install --from-paths src --ignore-src -r -y || true
+              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              cp build/compile_commands.json /workspace/compile_src.json
+            "
 
-      - name: Merge compile_commands.json files
-        shell: bash
+      - name: Create Python merge script
         run: |
-          python3 - << 'PY'
-import json
-with open('compile_dev.json') as f: dev = json.load(f)
-with open('compile_src.json') as f: src = json.load(f)
-with open('compile_commands.json','w') as out: json.dump(dev + src, out, indent=2)
-print("Merged entries:", len(dev), "+", len(src), "=", len(dev)+len(src))
-PY
+          echo 'import json
+dev = json.load(open("compile_dev.json"))
+src = json.load(open("compile_src.json"))
+with open("compile_commands.json","w") as f:
+    json.dump(dev + src, f, indent=2)
+print("Merged entries:", len(dev), "+", len(src), "=", len(dev)+len(src))' > merge.py
+
+      - name: Merge compile_commands.json
+        run: python3 merge.py
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:cpp"
+``
