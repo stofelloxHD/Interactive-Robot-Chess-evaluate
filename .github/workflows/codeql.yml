@@ -16,62 +16,114 @@ jobs:
       contents: read
       security-events: write
 
-    steps:
+    env:
+      # Übergibt die zusammengeführte Compilation Database an den C/C++-Extractor (build-less)
+      CODEQL_EXTRACTOR_CXX_COMPILATION_DATABASE: ${{ github.workspace }}/compile_commands.json
+      CODEQL_EXTRACTOR_CPP_COMPILATION_DATABASE: ${{ github.workspace }}/compile_commands.json
+      CODEQL_EXTRACTOR_CXX_TRACING: "off"   # keine Build-Tracing-Erwartung (wir liefern compdb)
 
+    steps:
+      # 1) Repository holen
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      #############################################################
-      # 1) CodeQL initialisieren (läuft HOST-SEITIG, nicht Docker)
-      #############################################################
+      # 2) CodeQL initialisieren (ohne Autobuild, wir liefern später compile_commands.json)
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: cpp
           queries: security-extended
+          build-mode: none
 
-      #############################################################
-      # 2) Docker-Container für ROS Noetic starten
-      #############################################################
+      # 3) Beide Catkin-Workspaces im ROS Noetic Docker-Container bauen
+      #    - nutzt ros:noetic-desktop-full, enthält bereits die gängigen ROS-Pakete
+      #    - installiert ggf. catkin-tools (optional), führt rosdep aus (Dependencies)
+      #    - kopiert die erzeugten compile_commands.json jeweils nach /workspace
       - name: Build workspaces inside ROS Noetic Docker
         run: |
           docker run --rm \
             -v "$PWD:/workspace" \
             -w /workspace \
-            ros:noetic-ros-base \
-            bash -c "
+            ros:noetic-desktop-full \
+            bash -c '
               set -e
 
-              echo '=== Building DEV Workspace ==='
-              cd DEV/ROS/catkin_ws
-              source /opt/ros/noetic/setup.bash
-              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-              cp build/compile_commands.json /workspace/compile_dev.json
+              build_ws () {
+                WS="$1"
+                echo "=== Building workspace: $WS ==="
+                cd "$WS"
 
-              echo '=== Building SRC Workspace ==='
-              cd /workspace/SRC/ROS/catkin_ws
-              source /opt/ros/noetic/setup.bash
-              catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-              cp build/compile_commands.json /workspace/compile_src.json
-            "
+                # ROS-Umgebung & Dependencies
+                source /opt/ros/noetic/setup.bash
+                apt-get update -y && apt-get install -y python3-rosdep python3-catkin-tools > /dev/null
+                rosdep init 2>/dev/null || true
+                rosdep update
+                rosdep install --from-paths src --ignore-src -r -y || true
 
-      #############################################################
-      # 3) compile_commands.json zusammenführen
-      #############################################################
+                # Catkin-Build + compile_commands.json erzeugen
+                catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON || {
+                  echo "----- CMakeError.log ($WS) -----" >&2
+                  cat build/CMakeFiles/CMakeError.log 2>/dev/null || true
+                  echo "----- CMakeOutput.log ($WS) ----" >&2
+                  cat build/CMakeFiles/CMakeOutput.log 2>/dev/null || true
+                  exit 1
+                }
+
+                # compdb herauskopieren
+                case "$WS" in
+                  *DEV/*) cp build/compile_commands.json /workspace/compile_dev.json ;;
+                  *SRC/*) cp build/compile_commands.json /workspace/compile_src.json ;;
+                esac
+              }
+
+              build_ws "/workspace/DEV/ROS/catkin_ws"
+              build_ws "/workspace/SRC/ROS/catkin_ws"
+            '
+
+      # 4) Beide compile_commands.json zusammenführen (zu einer einzigen Liste)
       - name: Merge compile_commands.json files
         run: |
-          echo "[" > compile_commands.json
-          sed '1d;$d' compile_dev.json >> compile_commands.json
-          echo "," >> compile_commands.json
-          sed '1d;$d' compile_src.json >> compile_commands.json
-          echo "]" >> compile_commands.json
+          python3 - << 'PY'
+import json, sys
+with open('compile_dev.json') as f: dev = json.load(f)
+with open('compile_src.json') as f: src = json.load(f)
+with open('compile_commands.json', 'w') as out:
+    json.dump(dev + src, out, indent=2)
+print("Merged compile_commands.json with", len(dev), "+", len(src), "entries.")
+PY
 
-      #############################################################
-      # 4) CodeQL Analyse
-      #############################################################
+      # 5) Kurzer Check der gemergten compdb
+      - name: Show compile_commands.json summary
+        run: |
+          echo "---- compile_commands.json (head) ----"
+          head -n 50 compile_commands.json || true
+          echo "Total entries:"
+          python3 - << 'PY'
+import json
+print(len(json.load(open("compile_commands.json"))))
+PY
+
+      # 6) CodeQL Analyse (nutzt die gemergte compdb dank ENV oben)
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:cpp"
+
+      # 7) (Optional) Artefakte zur Diagnose hochladen
+      - name: Upload merged compile_commands.json (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile_commands.json
+          path: compile_commands.json
+
+      - name: Upload individual compile_commands (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile_commands_individual
+          path: |
+            compile_dev.json
+            compile_src.json
