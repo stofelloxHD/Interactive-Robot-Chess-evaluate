@@ -5,7 +5,7 @@ on:
     branches: ["main", "master", "develop"]
   pull_request:
     branches: ["main", "master", "develop"]
-  workflow_dispatch: {}  # Manuelles Starten möglich
+  workflow_dispatch: {}
 
 jobs:
   analyze-cpp:
@@ -28,14 +28,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config
 
-      - name: Initialize CodeQL (C++)
+      - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: cpp
           queries: security-extended
 
-      - name: Autobuild (C++)
-        uses: github/codeql-action/autobuild@v4
+      # ==========================================
+      # 🚀 MANUELLER BUILD (statt Autobuild)
+      # ==========================================
+      - name: Build C++ project
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build build --config Release -j$(nproc)
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
