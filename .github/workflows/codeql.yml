@@ -1,39 +1,43 @@
-name: "CodeQL Analysis (Robot Chess)"
+name: "CodeQL Analysis (Robot Chess - C++)"
 
 on:
   push:
     branches: ["main", "master", "develop"]
   pull_request:
     branches: ["main", "master", "develop"]
+  workflow_dispatch: {}  # Manuelles Starten möglich
 
 jobs:
-  analyze:
-    name: Analyze Robot Chess with CodeQL
+  analyze-cpp:
+    name: Analyze C++ with CodeQL
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
       security-events: write
 
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["cpp", "python"]
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
-      - name: Initialize CodeQL
+      - name: Install C++ build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config
+
+      - name: Initialize CodeQL (C++)
         uses: github/codeql-action/init@v4
         with:
-          languages: ${{ matrix.language }}
-          build-mode: none
-          queries: security-and-quality
+          languages: cpp
+          queries: security-extended
+
+      - name: Autobuild (C++)
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:cpp"
