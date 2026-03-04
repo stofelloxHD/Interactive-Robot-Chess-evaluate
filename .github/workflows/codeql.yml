@@ -33,16 +33,20 @@ jobs:
           docker run --rm \
             -v "$PWD:/workspace" \
             -w /workspace \
-            ros:noetic-desktop-full \
+            ros:noetic-ros-base \
             bash -lc "
               set -e
               source /opt/ros/noetic/setup.bash
+
               cd /workspace/DEV/ROS/catkin_ws
+
               apt-get update -y >/dev/null 2>&1 || true
               apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
+
               rosdep init 2>/dev/null || true
               rosdep update || true
               rosdep install --from-paths src --ignore-src -r -y || true
+
               catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
               cp build/compile_commands.json /workspace/compile_dev.json
             "
@@ -52,30 +56,38 @@ jobs:
           docker run --rm \
             -v "$PWD:/workspace" \
             -w /workspace \
-            ros:noetic-desktop-full \
+            ros:noetic-ros-base \
             bash -lc "
               set -e
               source /opt/ros/noetic/setup.bash
+
               cd /workspace/SRC/ROS/catkin_ws
+
               apt-get update -y >/dev/null 2>&1 || true
               apt-get install -y python3-rosdep python3-catkin-tools >/dev/null 2>&1 || true
+
               rosdep init 2>/dev/null || true
               rosdep update || true
               rosdep install --from-paths src --ignore-src -r -y || true
+
               catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
               cp build/compile_commands.json /workspace/compile_src.json
             "
 
       - name: Merge compile_commands.json files
         run: |
-          printf "%s\n" "import json" \
-                         "dev = json.load(open('compile_dev.json'))" \
-                         "src = json.load(open('compile_src.json'))" \
-                         "with open('compile_commands.json','w') as f:" \
-                         "    json.dump(dev + src, f, indent=2)" \
-                         "print('Merged entries:', len(dev), '+', len(src), '=', len(dev)+len(src))" \
+          printf "%s\n" \
+            "import json" \
+            "dev = json.load(open('compile_dev.json'))" \
+            "src = json.load(open('compile_src.json'))" \
+            "with open('compile_commands.json','w') as f:" \
+            "    json.dump(dev + src, f, indent=2)" \
+            "print('Merged entries:', len(dev), '+', len(src), '=', len(dev)+len(src))" \
             > merge.py
+
           python3 merge.py
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:cpp"
