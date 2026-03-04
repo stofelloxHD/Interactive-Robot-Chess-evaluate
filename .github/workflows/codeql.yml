@@ -22,14 +22,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install ROS + catkin dependencies
+      - name: Debug: Show repository structure
+        run: ls -R .
+
+      - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            python3-catkin-tools \
-            python3-vcstool \
-            cmake \
-            build-essential
+          sudo apt-get install -y cmake build-essential
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -37,10 +36,10 @@ jobs:
           languages: cpp
           queries: security-extended
 
-      - name: Build ROS workspace (catkin)
-        working-directory: ./DEV/ROS/catkin_ws
+      - name: Build C++ project (ROS package without ROS)
         run: |
-          catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake -S DEV/ROS/catkin_ws/src -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build build --config Release -j$(nproc)
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
