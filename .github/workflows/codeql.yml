@@ -40,7 +40,7 @@ jobs:
 
       - name: Build C++ project
         run: |
-          cmake -S DEV/ROS/catkin_ws/src -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake -S DEV/ROS/catkin_ws/src/ibo1_irc_api -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake --build build --config Release -j$(nproc)
 
       - name: Perform CodeQL Analysis
