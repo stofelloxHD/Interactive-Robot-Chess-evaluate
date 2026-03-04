@@ -10,21 +10,19 @@ on:
 jobs:
   analyze-cpp:
     name: Analyze C++ with CodeQL (Both Workspaces)
-    runs-on: ubuntu-20.04   # ROS Noetic benötigt Ubuntu 20.04
+    runs-on: ubuntu-20.04
 
     permissions:
       contents: read
       security-events: write
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      ########################################################
-      # 1. ROS NOETIC installieren (catkin, compiler, etc.)
-      ########################################################
       - name: Setup ROS Noetic
         run: |
           sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu focal main" > /etc/apt/sources.list.d/ros1.list'
@@ -33,51 +31,35 @@ jobs:
           sudo apt-get install -y ros-noetic-desktop-full python3-catkin-tools
           echo "source /opt/ros/noetic/setup.bash" >> $GITHUB_ENV
 
-      ########################################################
-      # 2. CodeQL initialisieren
-      ########################################################
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: cpp
           queries: security-extended
 
-      ########################################################
-      # 3. WORKSPACE 1: DEV/ROS/catkin_ws
-      ########################################################
       - name: Build DEV workspace
         run: |
           source /opt/ros/noetic/setup.bash
           cd DEV/ROS/catkin_ws
           catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          # compile_commands.json nach oben kopieren
-          cp build/compile_commands.json ../../../../compile_commands_DEV.json
+          cp build/compile_commands.json $GITHUB_WORKSPACE/compile_dev.json
 
-      ########################################################
-      # 4. WORKSPACE 2: SRC/ROS/catkin_ws
-      ########################################################
       - name: Build SRC workspace
         run: |
           source /opt/ros/noetic/setup.bash
           cd SRC/ROS/catkin_ws
           catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          # compile_commands.json nach oben kopieren
-          cp build/compile_commands.json ../../../../compile_commands_SRC.json
+          cp build/compile_commands.json $GITHUB_WORKSPACE/compile_src.json
 
-      ########################################################
-      # 5. Beide compile_commands.json zusammenführen
-      ########################################################
-      - name: Merge compile_commands.json files
+      - name: Merge compile_commands.json from both workspaces
         run: |
           echo "[" > compile_commands.json
-          cat compile_commands_DEV.json | sed '$s/],$/],/' >> compile_commands.json
-          cat compile_commands_SRC.json | sed '1s/^\[//' >> compile_commands.json
+          sed '1d;$d' compile_dev.json >> compile_commands.json
+          echo "," >> compile_commands.json
+          sed '1d;$d' compile_src.json >> compile_commands.json
+          echo "]" >> compile_commands.json
 
-      ########################################################
-      # 6. CodeQL Analyse
-      ########################################################
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:cpp"
-``
